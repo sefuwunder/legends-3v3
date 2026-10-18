@@ -2,10 +2,9 @@
 import * as THREE from './vendor/three.module.js';
 import { PLAYERS } from '../src/roster.js';
 import { solveLeg } from './body.js';
+import { archLayout, accessoriesFor, buildParams } from '../src/style.js';
 
 export const COURT = { W: 15, D: 14, HX: 0, HZ: 1.575, RIM: 3.05 };
-
-const BUILD_W = { huge: 0.62, power: 0.55, solid: 0.50, athletic: 0.46, slight: 0.40 };
 
 // per-player hair: [style, color, extra]
 const HAIR = {
@@ -74,20 +73,54 @@ function courtTexture() {
   });
 }
 
-function jerseyTexture(num, name, pri, sec) {
+function jerseyBase(g, pri, sec) {
+  g.fillStyle = pri; g.fillRect(0, 0, 128, 160);
+  // mesh holes
+  g.fillStyle = 'rgba(0,0,0,0.10)';
+  for (let y = 8; y < 160; y += 8) for (let x = (y % 16 === 0 ? 4 : 0); x < 128; x += 8) g.fillRect(x, y, 2, 2);
+  // side trim
+  g.fillStyle = sec; g.fillRect(0, 0, 10, 160); g.fillRect(118, 0, 10, 160);
+  g.fillStyle = 'rgba(255,255,255,0.25)'; g.fillRect(10, 0, 3, 160); g.fillRect(115, 0, 3, 160);
+  // striped collar trim (reference look)
+  g.fillStyle = sec; g.fillRect(0, 0, 128, 9);
+  g.fillStyle = 'rgba(255,255,255,0.65)'; g.fillRect(0, 9, 128, 2);
+  g.fillStyle = 'rgba(0,0,0,0.22)'; g.fillRect(0, 11, 128, 4);
+  // subtle waist shading
+  g.fillStyle = 'rgba(0,0,0,0.18)'; g.fillRect(0, 148, 128, 12);
+}
+
+// FRONT: arched squad wordmark above a big number (reference look)
+function jerseyFrontTexture(squadName, num, pri, sec) {
   return canvasTex(128, 160, (g) => {
-    g.fillStyle = pri; g.fillRect(0, 0, 128, 160);
-    // mesh holes
-    g.fillStyle = 'rgba(0,0,0,0.10)';
-    for (let y = 8; y < 160; y += 8) for (let x = (y % 16 === 0 ? 4 : 0); x < 128; x += 8) g.fillRect(x, y, 2, 2);
-    // side trim
-    g.fillStyle = sec; g.fillRect(0, 0, 10, 160); g.fillRect(118, 0, 10, 160);
-    g.fillStyle = 'rgba(255,255,255,0.25)'; g.fillRect(10, 0, 3, 160); g.fillRect(115, 0, 3, 160);
-    // collar + armhole shading
-    g.fillStyle = 'rgba(0,0,0,0.22)'; g.fillRect(0, 0, 128, 14); g.fillRect(0, 146, 128, 14);
+    jerseyBase(g, pri, sec);
+    const word = squadName.toUpperCase();
+    const n = word.length;
+    const fontPx = n > 10 ? 14 : 17;
+    g.font = `900 ${fontPx}px Arial, sans-serif`;
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    const layout = archLayout(word, 64, 26, 64, (0.72 * fontPx) / 64);
+    g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,0.55)'; g.fillStyle = '#fff';
+    for (const { ch, x, y, rot } of layout) {
+      g.save(); g.translate(x, y); g.rotate(rot);
+      g.strokeText(ch, 0, 0); g.fillText(ch, 0, 0);
+      g.restore();
+    }
+    // big front number
+    g.font = '900 68px Arial Black, sans-serif';
+    g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+    g.lineWidth = 5; g.strokeStyle = 'rgba(0,0,0,0.55)';
+    g.strokeText(String(num), 64, 124);
+    g.fillStyle = '#fff'; g.fillText(String(num), 64, 124);
+  });
+}
+
+// BACK: name plate above the number (unchanged legacy look)
+function jerseyBackTexture(lastName, num, pri, sec) {
+  return canvasTex(128, 160, (g) => {
+    jerseyBase(g, pri, sec);
     // name plate
     g.fillStyle = '#fff'; g.font = '900 17px Arial, sans-serif'; g.textAlign = 'center';
-    g.fillText(name.toUpperCase().slice(0, 12), 64, 34);
+    g.fillText(lastName.toUpperCase().slice(0, 12), 64, 34);
     // number
     g.font = '900 62px Arial Black, sans-serif';
     g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineWidth = 4;
@@ -101,31 +134,40 @@ function shortsTexture(pri, sec) {
     g.fillStyle = sec; g.fillRect(0, 0, 8, 64); g.fillRect(56, 0, 8, 64);
     g.fillStyle = 'rgba(0,0,0,0.15)';
     for (let y = 4; y < 64; y += 8) for (let x = 0; x < 64; x += 8) g.fillRect(x, y, 2, 2);
+    // hem trim stripe (reference look)
+    g.fillStyle = sec; g.fillRect(0, 54, 64, 7);
+    g.fillStyle = 'rgba(255,255,255,0.5)'; g.fillRect(0, 54, 64, 2);
   });
 }
 
 // ---------------- player ----------------
 export class PlayerMesh {
-  constructor(pid, colors) {
+  constructor(pid, squad) {
     this.pid = pid;
     const P = PLAYERS[pid];
     this.P = P;
-    const h = P.h, s = h / 1.98;
+    const colors = squad.colors;
+    const h = P.h;
+    const bp = buildParams(P.build, h);
+    const s = bp.s;
     this.h = h;
-    this.legLen = h * 0.47;
-    this.L1 = this.legLen * 0.52;   // thigh (matches Body)
-    this.L2 = this.legLen * 0.48;   // shin  (matches Body)
-    const torsoH = h * 0.30;
-    const tW = BUILD_W[P.build] * s * (0.94 + 0.06 * h / 1.98), tD = tW * 0.55;
-    this.hipJointX = tW * 0.30;
-    const skin = new THREE.MeshLambertMaterial({ color: P.skin });
+    this.legLen = bp.legLen;
+    this.L1 = bp.L1;   // thigh (matches Body)
+    this.L2 = bp.L2;   // shin  (matches Body)
+    const torsoH = bp.torsoH;
+    const shW = bp.shoulderW, waW = bp.waistW, hipW = bp.hipW, tD = bp.tD;
+    this.hipJointX = bp.hipJointX;
+    const skin = new THREE.MeshLambertMaterial({ color: P.skin, flatShading: true });
     const lastName = P.name.split(' ').pop();
-    const jerTex = jerseyTexture(P.num, lastName, colors.pri, colors.sec);
-    const jer = new THREE.MeshLambertMaterial({ map: jerTex });
-    const jerPlain = new THREE.MeshLambertMaterial({ color: new THREE.Color(colors.pri) });
-    const shortsM = new THREE.MeshLambertMaterial({ map: shortsTexture(colors.sec, colors.pri) });
-    const shoeM = new THREE.MeshLambertMaterial({ color: 0xf2f2f2 });
-    const shoeAccent = new THREE.MeshLambertMaterial({ color: new THREE.Color(colors.sec) });
+    const jerF = new THREE.MeshLambertMaterial({ map: jerseyFrontTexture(squad.name, P.num, colors.pri, colors.sec), flatShading: true });
+    const jerB = new THREE.MeshLambertMaterial({ map: jerseyBackTexture(lastName, P.num, colors.pri, colors.sec), flatShading: true });
+    const jerPlain = new THREE.MeshLambertMaterial({ color: new THREE.Color(colors.pri), flatShading: true });
+    const shortsM = new THREE.MeshLambertMaterial({ map: shortsTexture(colors.pri, colors.sec), flatShading: true });
+    const shoeM = new THREE.MeshLambertMaterial({ color: 0xf2f2f2, flatShading: true });
+    const shoeAccent = new THREE.MeshLambertMaterial({ color: new THREE.Color(colors.sec), flatShading: true });
+    const acc = accessoriesFor(pid); // seeded per-player: sleeve / wristband / knee sleeves
+    const sleeveM = new THREE.MeshLambertMaterial({ color: 0xf4f4f4, flatShading: true });
+    const bandM = new THREE.MeshLambertMaterial({ color: 0x161616, flatShading: true });
 
     const g = new THREE.Group();
     const j = this.j = {};
@@ -136,32 +178,62 @@ export class PlayerMesh {
     // legs
     for (const sd of [-1, 1]) {
       const thigh = new THREE.Group(); thigh.position.set(sd * this.hipJointX, 0, 0); hips.add(thigh);
-      const th = box(tW * 0.30, this.L1, tW * 0.32, skin); th.position.y = -this.L1 / 2; thigh.add(th);
+      const th = box(hipW * 0.30, this.L1, hipW * 0.32, skin); th.position.y = -this.L1 / 2; thigh.add(th);
       const knee = new THREE.Group(); knee.position.y = -this.L1; thigh.add(knee);
-      const sh = box(tW * 0.26, this.L2, tW * 0.28, skin); sh.position.y = -this.L2 / 2; knee.add(sh);
-      const shoe = box(tW * 0.32, 0.10 * s, tW * 0.56, shoeM);
-      shoe.position.set(0, -this.L2 - 0.02, 0.07 * s); knee.add(shoe);
-      const accent = box(tW * 0.33, 0.03 * s, tW * 0.30, shoeAccent);
-      accent.position.set(0, -this.L2 + 0.015, 0.02 * s); knee.add(accent);
+      const sh = box(hipW * 0.26, this.L2, hipW * 0.28, skin); sh.position.y = -this.L2 / 2; knee.add(sh);
+      if (acc.kneeSleeves) {
+        const ks = box(hipW * 0.30, this.L2 * 0.52, hipW * 0.32, bandM);
+        ks.position.y = -this.L2 * 0.30; knee.add(ks);
+      }
+      // chunky high-top shoe (sole stays at the same height as before)
+      const soleY = -this.L2 - 0.02 - 0.05 * s;
+      const shoe = box(hipW * 0.38, 0.14 * s, hipW * 0.62, shoeM);
+      shoe.position.set(0, soleY + 0.07 * s, 0.07 * s); knee.add(shoe);
+      const collar = box(hipW * 0.34, 0.10 * s, hipW * 0.42, shoeM);
+      collar.position.set(0, soleY + 0.19 * s, 0.02 * s); knee.add(collar);
+      const accent = box(hipW * 0.39, 0.03 * s, hipW * 0.40, shoeAccent);
+      accent.position.set(0, soleY + 0.10 * s, 0.03 * s); knee.add(accent);
       j[sd < 0 ? 'hipL' : 'hipR'] = thigh; j[sd < 0 ? 'kneeL' : 'kneeR'] = knee;
     }
-    // shorts
-    const shorts = box(tW * 1.08, torsoH * 0.44, tD * 1.18, shortsM);
-    shorts.position.y = torsoH * 0.16; hips.add(shorts);
-    // torso
+    // shorts (longer cut, hem sits lower)
+    const shorts = box(hipW * 1.10, torsoH * 0.58, tD * 1.18, shortsM);
+    shorts.position.y = torsoH * 0.09; hips.add(shorts);
+    // torso: tapered box (broad shoulders -> waist), faceted via flatShading
     const spine = new THREE.Group(); spine.position.y = torsoH * 0.32; hips.add(spine); j.spine = spine;
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(tW, torsoH * 0.78, tD),
-      [jerPlain, jerPlain, jerPlain, jerPlain, jer, jer]);
+    const torsoH2 = torsoH * 0.78;
+    const torsoGeo = new THREE.BoxGeometry(shW, torsoH2, tD, 1, 2, 1);
+    {
+      const pos = torsoGeo.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        const t = (pos.getY(i) + torsoH2 / 2) / torsoH2; // 0 bottom -> 1 top
+        pos.setX(i, pos.getX(i) * ((waW + (shW - waW) * t) / shW));
+      }
+      torsoGeo.computeVertexNormals();
+    }
+    const torso = new THREE.Mesh(torsoGeo,
+      [jerPlain, jerPlain, jerPlain, jerPlain, jerF, jerB]);
     torso.position.y = torsoH * 0.42; spine.add(torso);
     const shY = torsoH * 0.78;
     // arms (wingspan scales mildly with height)
-    this.armLen = h * 0.34 * (1 + (h - 1.98) * 0.18);
+    this.armLen = bp.armLen;
     const uaLen = this.armLen * 0.52, faLen = this.armLen * 0.48;
     for (const sd of [-1, 1]) {
-      const sh = new THREE.Group(); sh.position.set(sd * (tW / 2 + 0.03), shY, 0); spine.add(sh);
-      const ua = box(tW * 0.24, uaLen, tW * 0.26, jerPlain); ua.position.y = -uaLen / 2; sh.add(ua);
+      const side = sd < 0 ? 'L' : 'R';
+      const sh = new THREE.Group(); sh.position.set(sd * (shW / 2 + 0.02), shY, 0); spine.add(sh);
+      // faceted deltoid cap (reference: broad shoulders); rides with the torso
+      const delt = new THREE.Mesh(new THREE.SphereGeometry(shW * 0.17, 7, 5), jerPlain);
+      delt.position.set(sd * (shW / 2 + 0.02), shY, 0); spine.add(delt);
+      const ua = box(shW * 0.22, uaLen, shW * 0.24, jerPlain); ua.position.y = -uaLen / 2; sh.add(ua);
       const el = new THREE.Group(); el.position.y = -uaLen; sh.add(el);
-      const fa = box(tW * 0.20, faLen, tW * 0.22, skin); fa.position.y = -faLen / 2; el.add(fa);
+      const fa = box(shW * 0.18, faLen, shW * 0.20, skin); fa.position.y = -faLen / 2; el.add(fa);
+      if (acc.sleeve === side) { // shooting sleeve over the forearm
+        const sl = box(shW * 0.21, faLen * 0.95, shW * 0.23, sleeveM);
+        sl.position.y = -faLen / 2; el.add(sl);
+      }
+      if (acc.wristband === side) {
+        const wb = box(0.095 * s, 0.035 * s, 0.07 * s, bandM);
+        wb.position.y = -faLen - 0.005; el.add(wb);
+      }
       // hand: palm + fingers with open/close, fingertip anchor for the ball
       const handG = new THREE.Group(); handG.position.y = -faLen - 0.01; el.add(handG);
       const palm = box(0.075 * s, 0.10 * s, 0.045 * s, skin); palm.position.y = -0.05 * s; handG.add(palm);
@@ -176,17 +248,17 @@ export class PlayerMesh {
     // head
     const neck = new THREE.Group(); neck.position.y = shY + 0.06 * s; spine.add(neck); j.neck = neck;
     const headR = (0.105 * s + 0.008) * (HEAD_SCALE[pid] || 1);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(headR, 12, 10), skin);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(headR, 8, 6), skin);
     head.position.y = headR * 1.25; head.scale.y = 1.15; neck.add(head);
     // hair variations (stylized, no likenesses)
     const [style, hairCol, extra] = HAIR[pid] || ['short', 0x14100c];
-    const hairM = new THREE.MeshLambertMaterial({ color: hairCol || 0x14100c });
+    const hairM = new THREE.MeshLambertMaterial({ color: hairCol || 0x14100c, flatShading: true });
     if (style === 'short' || style === 'afro') {
       const r = headR * (style === 'afro' ? 1.12 : 1.03);
-      const cap = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 8, 0, Math.PI * 2, 0, 1.35), hairM);
+      const cap = new THREE.Mesh(new THREE.SphereGeometry(r, 8, 6, 0, Math.PI * 2, 0, 1.35), hairM);
       cap.position.y = headR * 1.30; neck.add(cap);
     } else if (style === 'cornrows') {
-      const cap = new THREE.Mesh(new THREE.SphereGeometry(headR * 1.02, 10, 8, 0, Math.PI * 2, 0, 1.3), hairM);
+      const cap = new THREE.Mesh(new THREE.SphereGeometry(headR * 1.02, 8, 6, 0, Math.PI * 2, 0, 1.3), hairM);
       cap.position.y = headR * 1.30; neck.add(cap);
       for (let i = -2; i <= 2; i++) { // braids front-to-back
         const braid = box(0.022, 0.02, headR * 1.7, hairM);
@@ -200,7 +272,7 @@ export class PlayerMesh {
     }
     if (P.headband) {
       const band = new THREE.Mesh(new THREE.TorusGeometry(headR * 1.0, 0.018, 6, 14),
-        new THREE.MeshLambertMaterial({ color: new THREE.Color(colors.sec) }));
+        new THREE.MeshLambertMaterial({ color: new THREE.Color(colors.sec), flatShading: true }));
       band.rotation.x = Math.PI / 2 - 0.25; band.position.y = headR * 1.42; neck.add(band);
     }
     // blob shadow
@@ -513,8 +585,8 @@ export function createWorld(container) {
     scene, camera, renderer, ball, netG, jumboCanvas, jumboTex,
     players: new Map(),
     camOverride: null, // fn() -> {pos:Vector3-like, look:Vector3-like} for debug close-ups
-    addPlayer(pid, colors) {
-      const pm = new PlayerMesh(pid, colors);
+    addPlayer(pid, squad) {
+      const pm = new PlayerMesh(pid, squad);
       scene.add(pm.group);
       this.players.set(pid, pm);
       return pm;

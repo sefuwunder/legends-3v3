@@ -141,8 +141,8 @@ function startGame() {
   // world players
   T.world.clearPlayers();
   T.teamOfMap = {};
-  for (const pid of SQUADS[aId].players) { T.world.addPlayer(pid, SQUADS[aId].colors); T.teamOfMap[pid] = aId; }
-  for (const pid of SQUADS[bId].players) { T.world.addPlayer(pid, SQUADS[bId].colors); T.teamOfMap[pid] = bId; }
+  for (const pid of SQUADS[aId].players) { T.world.addPlayer(pid, SQUADS[aId]); T.teamOfMap[pid] = aId; }
+  for (const pid of SQUADS[bId].players) { T.world.addPlayer(pid, SQUADS[bId]); T.teamOfMap[pid] = bId; }
   T.pb.teamOf = pid => T.teamOfMap[pid];
   T.pb.reset([...SQUADS[aId].players, ...SQUADS[bId].players]);
   // scorebug chrome
