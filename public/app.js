@@ -175,6 +175,8 @@ $('btn-simend').onclick = () => {
 function endGame() {
   const g = T.game; if (!g) return;
   T.lastWinner = g.winner;
+  // dev invariant: possessed ball must track the hand (see playback.js stats)
+  if (T.pb) console.log(`[l3v3] ball-possession invariant: maxGap=${T.pb.stats.maxGap.toFixed(3)}m violations=${T.pb.stats.gapViolations}`);
   T.game = null; T.paused = true;
   const b = g.box();
   $('box-title').textContent = `FINAL — ${SQUADS[b.winner].name} WINS ${Math.max(b.a.score, b.b.score)}–${Math.min(b.a.score, b.b.score)}`;

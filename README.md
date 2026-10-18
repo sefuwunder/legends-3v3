@@ -62,12 +62,20 @@ Bun only, zero npm dependencies. three.js r160 is vendored in
   **event script** (passes, signature dribble moves, drives, shots with contest
   levels, rebounds, blocks, steals, fouls, free throws). Probabilities come from
   attributes × scheme matchups × stamina × clutch time.
-- `public/world.js` — three.js scene: procedural low-poly player rigs (height and
-  build vary per legend, jersey numbers, headbands), wood court canvas texture,
-  arena, broadcast camera
-- `public/playback.js` — turns the event script into animation: run cycles,
-  synced dribble bounces, shot arcs with rim bounces and swishes, graded jump-shot
-  variants, celebrations
+- `public/world.js` — three.js scene: procedural low-poly player rigs (per-legend
+  height/build/wingspan, front+back jersey numbers and name plates, hair
+  variations, headbands, gripping hands with fingertip ball anchors), wood court
+  canvas texture, arena, broadcast camera, dust puffs, debug close-up camera hook
+- `public/body.js` — body physics model: per-player velocity/accel with
+  athleticism-based caps, turn-rate limits, acceleration lean, speed-driven
+  stride cycle with planted feet, analytic two-bone leg IK, ballistic jumps with
+  crouch landings, capsule-vs-capsule collision
+- `public/ball.js` — ball-possession error correction: while held/dribbling the
+  ball is derived from the hand every frame; passes and shots start at the
+  release hand with catch blends (dev invariant logged at game end)
+- `public/playback.js` — turns the event script into animation: physics-driven
+  movement, release-synced passes/shots, shot arcs with rim bounces and
+  swishes, graded jump-shot variants, celebrations
 - `public/audio.js` — synthesized WebAudio: ball bounces, swishes, rim clangs,
   buzzer, whistle, crowd swells, sneaker squeaks
 - `public/app.js` — title → squad select → bracket → whiteboard → live game →
@@ -76,7 +84,10 @@ Bun only, zero npm dependencies. three.js r160 is vendored in
 ## Tests
 
 ```sh
-bun test   # 24 tests: determinism, scheme effects, attribute sanity, 100-game soak
+bun test   # 39 tests: determinism, scheme effects, attribute sanity, 100-game
+           # soak, leg IK round-trip, foot planting, jump ballistics, body
+           # collisions, ball-possession invariant + release anchoring over
+           # full simmed games
 ```
 
 Verified in headless Chromium via CDP: full flow (title → squad → bracket →
